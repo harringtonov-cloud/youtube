@@ -58,6 +58,18 @@ class Settings:
     sandbox_view_threshold_ms: int = 2000
     cookie_secure: bool = False
     log_level: str = "info"
+    # --- YouTube Data API / Google OAuth ---
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = ""  # для веб-входа (HTTPS), напр. https://example.com/oauth/callback
+    youtube_api_key: str = ""  # необязательно: чтение публичных данных без входа
+    yt_poll_interval_min: int = 30
+    yt_write_limit_per_day: int = 20
+    yt_daily_quota: int = 10_000
+    # Адреса Google. Меняются только в автотестах (тестовый двойник Google).
+    google_oauth_base: str = "https://oauth2.googleapis.com"
+    google_auth_url: str = "https://accounts.google.com/o/oauth2/v2/auth"
+    youtube_api_base: str = "https://www.googleapis.com/youtube/v3"
     # Секрет песочницы: выдаётся только браузеру Playwright (cookie), живёт в памяти.
     sandbox_key: str = field(default_factory=lambda: secrets.token_urlsafe(24))
 
@@ -102,6 +114,19 @@ def get_settings() -> Settings:
         sandbox_view_threshold_ms=_env_int("SANDBOX_VIEW_THRESHOLD_MS", 2000, 500),
         cookie_secure=_env_bool("COOKIE_SECURE", False),
         log_level=(os.environ.get("LOG_LEVEL", "info").strip().lower() or "info"),
+        google_client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
+        google_client_secret=os.environ.get("GOOGLE_CLIENT_SECRET", "").strip(),
+        google_redirect_uri=os.environ.get("GOOGLE_REDIRECT_URI", "").strip(),
+        youtube_api_key=os.environ.get("YOUTUBE_API_KEY", "").strip(),
+        yt_poll_interval_min=_env_int("YT_POLL_INTERVAL_MIN", 30, 5),
+        yt_write_limit_per_day=_env_int("YT_WRITE_LIMIT_PER_DAY", 20, 1),
+        yt_daily_quota=_env_int("YT_DAILY_QUOTA", 10_000, 100),
+        google_oauth_base=os.environ.get("GOOGLE_OAUTH_BASE", "").strip().rstrip("/")
+        or "https://oauth2.googleapis.com",
+        google_auth_url=os.environ.get("GOOGLE_AUTH_URL", "").strip()
+        or "https://accounts.google.com/o/oauth2/v2/auth",
+        youtube_api_base=os.environ.get("YOUTUBE_API_BASE", "").strip().rstrip("/")
+        or "https://www.googleapis.com/youtube/v3",
     )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.screenshots_dir.mkdir(parents=True, exist_ok=True)

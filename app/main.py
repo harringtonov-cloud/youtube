@@ -29,6 +29,9 @@ from .runner import RunManager
 from .sandbox.routes import build_routes as build_sandbox_routes
 from .sandbox.store import SandboxStore
 from .scenarios import SCENARIOS
+from .youtube.oauth import OAuthManager
+from .youtube.routes import build_routes as build_youtube_routes
+from .youtube.service import YouTubeService
 from .urlutils import InvalidYouTubeUrl, extract_video_id, is_valid_video_id
 
 APP_DIR = Path(__file__).parent
@@ -43,6 +46,8 @@ bus = EventBus()
 db = Database(settings.db_path)
 store = SandboxStore(settings.sandbox_view_threshold_ms)
 runner = RunManager(settings, db, bus, store)
+oauth = OAuthManager(settings, db, bus)
+youtube = YouTubeService(settings, db, bus, oauth)
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
 COOKIE_NAME = "yt_admin"
@@ -290,10 +295,12 @@ async def lifespan(app: Starlette) -> AsyncIterator[None]:
     if settings.token_was_generated:
         log.warning("ADMIN_TOKEN не задан. Сгенерированный токен для входа: %s", settings.admin_token)
     await runner.start()
+    youtube.start_poller()
     log.info("Панель запущена: http://%s:%d  (песочница: %s)", settings.host, settings.port, settings.sandbox_base_url)
     try:
         yield
     finally:
+        await youtube.stop_poller()
         await runner.stop()
         db.close()
 
@@ -316,6 +323,7 @@ routes = [
     Route("/api/sandbox/{vid}", sandbox_stats),
     Route("/api/events", events),
     *build_sandbox_routes(settings, store, bus),
+    *build_youtube_routes(youtube, oauth, authed, json_body),
     Mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static"),
 ]
 

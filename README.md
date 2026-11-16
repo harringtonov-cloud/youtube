@@ -1,144 +1,132 @@
-# YouTube Engagement Automation Tester
+# YouTube Engagement Automation Tester v2
 
-Инструмент для **технического тестирования автоматизации сайтов**: Playwright на сервере (VPS)
-прогоняет сценарии «просмотр / лайк / комментарий» против **встроенной локальной песочницы** —
-мини-копии страницы видео со своим бэкендом. Управление и логи — через веб-панель.
+Панель управления для работы с **настоящим YouTube через официальный YouTube Data API v3** и
+Google OAuth 2.0, плюс отдельная вкладка с автотестами в локальной песочнице (Playwright).
+Всё работает на вашем VPS, управление — из браузера (удобно с телефона).
 
-## Безопасность: накрутки нет и быть не может
+> Данные только настоящие. Если API чего-то не отдаёт (скрытые лайки, отключённые комментарии,
+> дизлайки), в интерфейсе показан прочерк и причина — значения не выдумываются.
 
-- Браузер открывает **только** `http://127.0.0.1:<порт>/sandbox/...`. Ссылка YouTube нужна лишь для
-  извлечения 11-символьного ID, который становится меткой тестового видео.
-- Все запросы браузера к другим хостам (включая youtube.com) **отменяются** на уровне Playwright
-  и фиксируются в списке заблокированных. Сценарий `safety_guard` проверяет это при каждом запуске.
-- Песочница закрыта секретным cookie, которое получает только браузер Playwright.
-- Панель защищена `ADMIN_TOKEN`; есть ограничение попыток входа.
-- Chromium всегда запускается `headless` на сервере; локальный Chrome не используется.
+## Что умеет вкладка «YouTube API»
 
-## Возможности
+| Функция | Метод API | Квота | Права |
+|---|---|---|---|
+| Просмотры, лайки, число комментариев, название, длительность, приватность | `videos.list` | 1 | API-ключ или вход |
+| Список комментариев (популярные/новые, постранично) | `commentThreads.list` | 1 | API-ключ или вход |
+| Узнать, поставили ли вы лайк | `videos.getRating` | 1 | вход |
+| Поставить / снять свой лайк | `videos.rate` | 50 | вход (`youtube`) |
+| Написать комментарий, ответить, удалить свой | `commentThreads.insert`, `comments.insert`, `comments.delete` | 50 | **веб-вход** (`youtube.force-ssl`) |
+| Изменить название и описание **своего** видео | `videos.update` | 50 | вход |
+| Отслеживание статистики во времени (график) | `videos.list` по расписанию | 1 на 50 видео | API-ключ или вход |
+| Журнал всех обращений к API и оценка расхода квоты | — | — | — |
 
-| Требование | Где реализовано |
-|---|---|
-| Современный веб-интерфейс (адаптивный, удобен с телефона) | `app/templates/index.html`, `app/static/` |
-| Ввод URL YouTube-видео с проверкой | `app/urlutils.py`, `/api/parse` |
-| Автоматизация через Playwright на сервере | `app/browser.py`, `app/scenarios.py` |
-| Панель сценариев (выбор, запуск, отмена) | вкладка «Новый тестовый прогон» |
-| Проверка просмотров / лайков / комментариев | `app/sandbox/`, сценарии `views`, `likes`, `comments` |
-| Результаты в реальном времени | SSE `/api/events` |
-| Логи успехов и ошибок | консоль в панели + таблица `logs` |
-| История тестирования | SQLite `data/history.sqlite3` + скриншоты |
-| Исключения и автовосстановление | `app/runner.py`: перезапуск браузера и повтор (до `MAX_ATTEMPTS`) |
+### Чего API не умеет — и приложение этого не изображает
 
-Сценарии: `views` (порог воспроизведения, дедупликация, серверная проверка времени), `likes`
-(идемпотентность, сохранение, независимые сессии), `comments` (валидация, XSS-защита, лимит частоты),
-`recovery` (сбой бэкенда 503 и падение браузера), `safety_guard` (блокировка внешнего трафика).
+- **Накрутка просмотров невозможна**: в API нет операции «добавить просмотр». Просмотры тут можно только **читать**.
+- **Дизлайки**: с декабря 2021 YouTube не отдаёт `dislikeCount`.
+- **Лайки/комментарии скрыты автором** → поле отсутствует в ответе, в панели «—».
+- **Комментарии при входе по коду (device flow)**: Google разрешает в нём только права `youtube` и
+  `youtube.readonly`, а комментариям нужен `youtube.force-ssl`. Поэтому комментировать можно только
+  после веб-входа (нужен HTTPS-адрес, см. ниже). Панель сама показывает, что доступно текущему входу.
+- **Остаток квоты** API не сообщает. Индикатор — оценка по журналу этого приложения; точное значение
+  в Google Cloud Console.
 
-## Структура
+### Защита от злоупотреблений (намеренные ограничения)
 
-```
-yt-engagement-tester/
-├── app/
-│   ├── main.py          # панель: REST API, SSE, авторизация
-│   ├── runner.py        # очередь прогонов, повторы, автовосстановление
-│   ├── browser.py       # headless Chromium + блокировка внешних адресов
-│   ├── scenarios.py     # тестовые сценарии
-│   ├── db.py            # история (SQLite)
-│   ├── events.py        # шина событий для SSE
-│   ├── urlutils.py      # разбор YouTube-ссылок
-│   ├── config.py        # настройки из .env
-│   ├── sandbox/         # локальная «страница видео» и её бэкенд
-│   ├── templates/       # index.html
-│   └── static/          # app.css, app.js
-├── tests/test_units.py  # юнит-тесты (без браузера)
-├── deploy/yt-tester.service
-├── Dockerfile, docker-compose.yml
-├── requirements.txt, .env.example
-└── data/                # история и скриншоты (создаётся автоматически)
-```
+Операции записи выполняются от имени вашего аккаунта и видны всем, поэтому:
+- только по явному нажатию с подтверждением — никаких циклов, расписаний и массовых действий;
+- суточный лимит записи (`YT_WRITE_LIMIT_PER_DAY`, по умолчанию 20) и пауза против двойного нажатия;
+- лайк не отправляется повторно, если он уже стоит (экономит 50 единиц квоты);
+- править можно только видео своего канала; один аккаунт, без ротации;
+- только лайк/снятие лайка (дизлайк не реализован).
+
+Используйте на своих видео и в рамках [правил YouTube](https://www.youtube.com/t/terms) и
+[условий YouTube API Services](https://developers.google.com/youtube/terms/api-services-terms-of-service).
+
+## Настройка Google (бесплатно)
+
+1. Откройте [Google Cloud Console](https://console.cloud.google.com/) → создайте проект.
+2. **APIs & Services → Library** → включите **YouTube Data API v3**.
+3. **Credentials → Create credentials → API key** → ограничьте ключ только YouTube Data API v3 →
+   значение в `.env` как `YOUTUBE_API_KEY` (даёт чтение без входа).
+4. **OAuth consent screen**: тип External, статус Testing, добавьте свой Google-аккаунт в **Test users**.
+   Область `youtube` — «чувствительная», поэтому Google покажет предупреждение «приложение не проверено»;
+   для личного использования это нормально («Дополнительно → Перейти»).
+   *В статусе Testing доступ (refresh token) истекает через 7 дней — тогда нажмите «Войти» снова.*
+5. **Credentials → Create credentials → OAuth client ID**:
+   - тип **TV and Limited Input devices** → вход по коду, не требует домена (подходит для сервера по IP);
+   - тип **Web application** с Authorized redirect URI `https://ВАШ-ДОМЕН/oauth/callback` → нужен для комментариев.
+
+   `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` берите от клиента того типа, которым входите. Можно
+   создать оба типа и по очереди менять значения в `.env`.
+6. Квота по умолчанию — 10 000 единиц в сутки (обнуляется в полночь по тихоокеанскому времени).
+   Чтение стоит 1, лайк/комментарий/правка — 50 единиц.
 
 ## Установка на VPS (Ubuntu/Debian, Python 3.12+)
 
 ```bash
-sudo apt update && sudo apt install -y python3 python3-venv git
-git clone https://github.com/<ваш-аккаунт>/yt-engagement-tester.git
-cd yt-engagement-tester
+sudo apt update && sudo apt install -y python3 python3-venv git unzip
+unzip yt-engagement-tester.zip && cd yt-engagement-tester     # или git clone вашего репозитория
 
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-playwright install --with-deps chromium   # браузер ставится на сервер
+playwright install --with-deps chromium     # нужен только для вкладки «Тесты в песочнице»
 
-cp .env.example .env
-nano .env                                 # задайте длинный ADMIN_TOKEN
-
+cp .env.example .env && nano .env           # ADMIN_TOKEN, YOUTUBE_API_KEY, GOOGLE_CLIENT_ID/SECRET
 python -m app
 ```
 
-Откройте `http://IP_СЕРВЕРА:8000`, введите `ADMIN_TOKEN`. Если порт закрыт — откройте его:
-`sudo ufw allow 8000/tcp`.
+Откройте `http://IP_СЕРВЕРА:8000` (при необходимости `sudo ufw allow 8000/tcp`), войдите по
+`ADMIN_TOKEN`. Приложению нужны **исходящие HTTPS-соединения** к `googleapis.com`, `oauth2.googleapis.com`.
 
-Если `ADMIN_TOKEN` пуст, токен генерируется при старте и печатается в логе.
+### Вход через Google
 
-### Постоянная работа (systemd)
+- **По коду (без домена):** кнопка «Войти по коду» → панель покажет код → на телефоне откройте
+  google.com/device, введите код, подтвердите доступ. Панель сама увидит подтверждение.
+- **Веб-вход (для комментариев):** нужен HTTPS. Бесплатно: домен на DuckDNS → Caddy сам получит сертификат:
+  ```bash
+  sudo apt install -y caddy
+  echo 'ваш-домен.duckdns.org { reverse_proxy 127.0.0.1:8000 }' | sudo tee /etc/caddy/Caddyfile
+  sudo systemctl reload caddy
+  ```
+  В `.env`: `GOOGLE_REDIRECT_URI=https://ваш-домен.duckdns.org/oauth/callback` и `COOKIE_SECURE=true`.
 
-```bash
-sudo useradd -r -m ytester
-sudo cp -r . /opt/yt-engagement-tester && sudo chown -R ytester: /opt/yt-engagement-tester
-cd /opt/yt-engagement-tester
-sudo -u ytester python3 -m venv .venv
-sudo -u ytester .venv/bin/pip install -r requirements.txt
-sudo -u ytester env PLAYWRIGHT_BROWSERS_PATH=/opt/yt-engagement-tester/.browsers .venv/bin/playwright install chromium
-sudo .venv/bin/playwright install-deps chromium
-sudo cp deploy/yt-tester.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now yt-tester
-journalctl -u yt-tester -f
+### Постоянная работа
+
+`deploy/yt-tester.service` (systemd) и `docker-compose.yml` — как в v1: см. комментарии в файлах.
+Для systemd: пути в unit-файле `/opt/yt-engagement-tester`, пользователь `ytester`.
+
+## Безопасность
+
+- Панель закрыта `ADMIN_TOKEN` (ограничение попыток входа). Задайте длинное случайное значение.
+- OAuth-токены хранятся в `data/history.sqlite3` (права `0600`) — не публикуйте папку `data/`.
+  Кнопка «Выйти и отозвать доступ» отзывает токен у Google.
+- Веб-вход защищён одноразовым `state`; секрет клиента не уходит в браузер.
+- В репозиторий не попадают `.env` и `data/` (см. `.gitignore`).
+
+## Вкладка «Тесты в песочнице» (Playwright)
+
+Автотесты на сервере в headless-Chromium против **локальной** мини-страницы видео со своим бэкендом:
+просмотры (порог, дедупликация), лайки, комментарии (валидация, XSS, лимит), автовосстановление
+после сбоев, проверка блокировки внешнего трафика. К настоящему YouTube эта вкладка не обращается:
+браузер заперт на loopback, а внешние запросы отменяются. Подробности — `app/sandbox/`, `app/scenarios.py`.
+
+## Структура
+
 ```
-
-### Через Docker
-
-```bash
-cp .env.example .env && nano .env
-docker compose up -d --build
+app/
+├── main.py            # панель: REST, SSE, вход по токену
+├── youtube/
+│   ├── http.py        # HTTP-клиент (stdlib), разбор ошибок Google, повторы только для GET
+│   ├── oauth.py       # OAuth 2.0: device flow + веб-вход, обновление и отзыв токенов
+│   ├── service.py     # YouTube Data API: чтение, лайк, комментарии, правка, квота, поллер
+│   └── routes.py      # HTTP-маршруты вкладки
+├── runner.py, browser.py, scenarios.py, sandbox/   # песочница и Playwright
+├── db.py              # SQLite: история тестов, журнал API, отслеживание, токены
+├── templates/, static/  # интерфейс (index.html, app.js, yt.js, app.css)
+tests/                 # юнит-тесты и тестовый двойник Google
+deploy/, Dockerfile, docker-compose.yml, requirements.txt, .env.example
 ```
-
-### HTTPS (бесплатно, рекомендуется)
-
-Панель передаёт токен, поэтому лучше открывать её по HTTPS. С доменом, направленным на VPS:
-
-```bash
-sudo apt install -y caddy
-echo 'tester.example.com { reverse_proxy 127.0.0.1:8000 }' | sudo tee /etc/caddy/Caddyfile
-sudo systemctl reload caddy
-```
-
-После этого поставьте `COOKIE_SECURE=true` в `.env` и перезапустите сервис.
-
-## Использование
-
-1. Войдите по токену.
-2. Вставьте ссылку на видео (`watch?v=`, `youtu.be/`, `shorts/`, `embed/`).
-3. Отметьте сценарии и нажмите «Запустить тест».
-4. Следите за статусами сценариев, счётчиками песочницы и логами в реальном времени.
-5. Завершённые прогоны остаются в истории: логи, результаты, скриншоты.
-
-## Настройки (`.env`)
-
-| Переменная | По умолчанию | Назначение |
-|---|---|---|
-| `ADMIN_TOKEN` | генерируется | пароль панели |
-| `PORT` / `HOST` | 8000 / 0.0.0.0 | адрес панели |
-| `MAX_ATTEMPTS` | 3 | попыток на сценарий при сбоях инфраструктуры |
-| `SCENARIO_TIMEOUT_S` | 90 | лимит времени сценария |
-| `ACTION_TIMEOUT_MS` | 10000 | таймаут действий браузера |
-| `SANDBOX_VIEW_THRESHOLD_MS` | 2000 | порог засчитывания просмотра в песочнице |
-| `MAX_CONCURRENT_RUNS` | 1 | параллельные прогоны (на малом VPS оставьте 1) |
-| `COOKIE_SECURE` | false | true при работе по HTTPS |
-
-## Как работает автовосстановление
-
-- **Сбой инфраструктуры** (таймаут, падение Chromium, закрытая страница): раннер логирует
-  причину, перезапускает браузер, ждёт с нарастающей паузой и повторяет сценарий до `MAX_ATTEMPTS`.
-- **Провал проверки** (например, счётчик не совпал) — это результат теста, он не повторяется.
-- **Перезапуск сервера** во время прогона: незавершённые прогоны помечаются как прерванные.
 
 ## Тесты
 
@@ -146,11 +134,28 @@ sudo systemctl reload caddy
 python -m unittest discover -s tests -t .
 ```
 
-Полный сквозной прогон с браузером — запустите панель и выполните все сценарии из интерфейса.
+Тесты YouTube-слоя работают против **тестового двойника Google** (`tests/mock_google.py`): он
+повторяет документированное поведение API (коды ошибок, требуемые права, стирание пропущенных
+полей при `videos.update`). Это проверка протокола и логики; **с вашим реальным Google-проектом
+приложение нужно проверить один раз самому** (вход, чтение видео, лайк на своём аккаунте).
 
-## API
+## Частые проблемы
 
-`POST /api/login`, `GET /api/scenarios`, `POST /api/runs`, `GET /api/runs`,
-`GET /api/runs/{id}`, `GET /api/runs/{id}/logs`, `POST /api/runs/{id}/cancel`,
-`DELETE /api/runs/{id}`, `GET /api/runs/{id}/screenshots`, `GET /api/events` (SSE),
-`GET /api/health`. Все, кроме `login` и `health`, требуют авторизации.
+| Симптом | Причина / решение |
+|---|---|
+| `quotaExceeded` | квота проекта исчерпана до полуночи PT; снизьте частоту опроса или запросите повышение |
+| «нет прав» у комментариев | вход по коду не даёт `youtube.force-ssl` → войдите через веб-вход |
+| `invalid_grant` / просит войти снова | доступ отозван или истёк 7-дневный срок режима Testing |
+| `invalid_client` | ID/секрет не от клиента того типа, которым входите |
+| `commentsDisabled` | владелец отключил комментарии — API их не отдаёт |
+| лайки «—» | автор скрыл счётчик лайков |
+| `accessNotConfigured` / 403 при запросе | не включён YouTube Data API v3 в проекте |
+
+## API панели
+
+`GET /api/yt/status`, `GET /api/yt/video?url=`, `GET /api/yt/comments?video=`,
+`POST /api/yt/rate`, `POST /api/yt/comment`, `POST /api/yt/reply`, `DELETE /api/yt/comment/{id}`,
+`POST /api/yt/video/update`, `GET|POST /api/yt/watch`, `POST /api/yt/watch/refresh`,
+`GET /api/yt/actions`, `POST /api/yt/auth/device/start|cancel`, `GET /api/yt/auth/web/start`,
+`POST /api/yt/auth/logout`, `GET /oauth/callback`, а также маршруты песочницы `/api/runs…`, `/api/events` (SSE).
+Все, кроме `/api/login`, `/api/health`, `/oauth/callback`, требуют авторизации.

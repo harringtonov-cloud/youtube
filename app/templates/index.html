@@ -39,7 +39,89 @@
     </div>
   </header>
 
-  <main class="grid">
+  <nav class="tabs" id="tabs">
+    <button type="button" class="tab active" data-tab="youtube">YouTube API</button>
+    <button type="button" class="tab" data-tab="sandbox">Тесты в песочнице</button>
+  </nav>
+
+  <!-- ===== YouTube API (реальные данные) ===== -->
+  <main id="tab-youtube" class="grid">
+    <section class="card" id="yt-conn">
+      <h2>Подключение</h2>
+      <div id="yt-status" class="muted">Загрузка…</div>
+      <div id="yt-device" class="device hidden"></div>
+      <div class="btn-row" id="yt-auth-btns"></div>
+      <div id="yt-auth-error" class="error"></div>
+      <div class="quota">
+        <div class="row-between"><span class="muted">Квота YouTube API (оценка)</span><span id="yt-quota-text">—</span></div>
+        <div class="progress"><div id="yt-quota-bar"></div></div>
+        <div class="row-between"><span class="muted">Операции записи сегодня</span><span id="yt-writes-text">—</span></div>
+      </div>
+    </section>
+
+    <section class="card" id="yt-lookup">
+      <h2>Видео</h2>
+      <form id="yt-form">
+        <label for="yt-url">Ссылка на реальное видео YouTube</label>
+        <input id="yt-url" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=…" required>
+        <button class="btn primary block" type="submit">Получить данные</button>
+      </form>
+      <div id="yt-video-error" class="error" role="alert"></div>
+      <div id="yt-video" class="video hidden"></div>
+    </section>
+
+    <section class="card wide hidden" id="yt-actions-card">
+      <h2>Операции с видео</h2>
+      <p class="muted small-note">Это реальные действия от имени вашего аккаунта Google. Каждое выполняется
+        только по нажатию, с подтверждением и суточным лимитом.</p>
+      <div class="btn-row">
+        <button id="yt-like" class="btn" type="button">👍 Поставить лайк</button>
+        <button id="yt-watch" class="btn ghost" type="button">📈 Отслеживать статистику</button>
+      </div>
+      <form id="yt-comment-form" class="stack">
+        <label for="yt-comment">Новый комментарий</label>
+        <textarea id="yt-comment" rows="3" maxlength="10000" placeholder="Текст комментария"></textarea>
+        <button class="btn" type="submit" id="yt-comment-btn">💬 Отправить комментарий</button>
+      </form>
+      <form id="yt-edit-form" class="stack hidden">
+        <label>Правка своего видео</label>
+        <input id="yt-edit-title" type="text" maxlength="100" placeholder="Название">
+        <textarea id="yt-edit-desc" rows="4" placeholder="Описание"></textarea>
+        <button class="btn" type="submit">✏️ Сохранить название и описание</button>
+      </form>
+      <div id="yt-op-msg" class="error" role="alert"></div>
+    </section>
+
+    <section class="card wide hidden" id="yt-comments-card">
+      <div class="row-between wrap">
+        <h2>Комментарии</h2>
+        <div class="filters">
+          <button type="button" class="chip active" data-order="relevance">популярные</button>
+          <button type="button" class="chip" data-order="time">новые</button>
+        </div>
+      </div>
+      <div id="yt-comments" class="comments"></div>
+      <button id="yt-more" class="btn ghost small hidden" type="button">Показать ещё</button>
+    </section>
+
+    <section class="card wide" id="yt-watch-card">
+      <div class="row-between wrap">
+        <h2>Отслеживаемые видео</h2>
+        <button id="yt-refresh" class="btn ghost small" type="button">Обновить сейчас</button>
+      </div>
+      <p class="muted small-note">Реальные счётчики из API снимаются по расписанию (каждые несколько минут,
+        1 единица квоты за запрос) — здесь история их изменения.</p>
+      <div id="yt-watchlist" class="watchlist"></div>
+    </section>
+
+    <section class="card wide" id="yt-log-card">
+      <h2>Журнал обращений к API</h2>
+      <div id="yt-log" class="table-wrap"></div>
+    </section>
+  </main>
+
+  <!-- ===== Песочница (автотесты) ===== -->
+  <main id="tab-sandbox" class="grid hidden">
     <!-- Новый прогон -->
     <section class="card" id="new-run">
       <h2>Новый тестовый прогон</h2>
@@ -115,6 +197,7 @@
 </div>
 
 <div id="toast" class="toast hidden" role="status"></div>
+<script src="/static/yt.js?v={{ version }}"></script>
 <script src="/static/app.js?v={{ version }}"></script>
 </body>
 </html>

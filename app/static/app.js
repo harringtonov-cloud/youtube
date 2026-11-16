@@ -303,6 +303,7 @@ function openEvents() {
     // после переподключения подтягиваем пропущенное
     loadRuns().catch(() => {});
     loadLogs().catch(() => {});
+    if (typeof ytRefreshAll === "function") ytRefreshAll();
   };
   es.onerror = () => setConn(false); // EventSource переподключится сам
   es.onmessage = (m) => {
@@ -335,6 +336,7 @@ function handleEvent(ev) {
       break;
     }
     default:
+      if (ev.type && ev.type.startsWith("yt_") && typeof ytEvent === "function") ytEvent(ev);
   }
 }
 
@@ -354,6 +356,7 @@ async function boot() {
   }
   await loadRuns();
   openEvents();
+  if (typeof ytInit === "function") ytInit();
   // показываем активный прогон или последний
   const runs = [...state.runs.values()].sort((a, b) => b.created_at - a.created_at);
   const active = runs.find((r) => ["queued", "running"].includes(r.status)) || runs[0];
