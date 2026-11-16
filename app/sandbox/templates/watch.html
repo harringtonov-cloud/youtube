@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Sandbox Tube · {{ vid }}</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, sans-serif; background: #0f0f12; color: #eee; }
+  header { padding: 10px 16px; background: #1a1a20; display: flex; gap: 12px; align-items: center; }
+  header .badge { background: #f59e0b; color: #111; font-weight: 700; font-size: 12px; padding: 3px 8px; border-radius: 99px; }
+  main { max-width: 820px; margin: 0 auto; padding: 16px; }
+  .screen { aspect-ratio: 16/9; background: linear-gradient(135deg,#312e81,#0f172a); border-radius: 12px;
+            display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+  .screen .vid-id { font-family: monospace; font-size: 22px; opacity: .8; }
+  #progress { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: #ffffff22; }
+  #bar { height: 100%; width: 0; background: #ef4444; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0; }
+  button { font: inherit; color: inherit; background: #26262e; border: 1px solid #3a3a46; border-radius: 99px;
+           padding: 8px 16px; cursor: pointer; }
+  button[disabled] { opacity: .5; cursor: progress; }
+  #like-btn[aria-pressed="true"] { background: #2563eb; border-color: #2563eb; }
+  #view-status[data-state="counted"] { color: #4ade80; }
+  #view-status[data-state="duplicate"], #view-status[data-state="rejected"] { color: #fbbf24; }
+  textarea { width: 100%; min-height: 72px; background: #17171c; color: inherit; border: 1px solid #3a3a46;
+             border-radius: 10px; padding: 10px; font: inherit; }
+  #comment-error { color: #f87171; min-height: 20px; }
+  #net-status { color: #fbbf24; font-size: 13px; }
+  ul { list-style: none; padding: 0; margin: 12px 0; }
+  .comment-item { padding: 10px 0; border-bottom: 1px solid #26262e; }
+  .comment-item .author { color: #93c5fd; font-size: 13px; }
+  .comment-item .text { white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body data-ready="0" data-vid="{{ vid }}" data-threshold="{{ threshold_ms }}">
+<header><strong>Sandbox Tube</strong><span class="badge">ТЕСТОВАЯ СРЕДА · это не YouTube</span></header>
+<main>
+  <section id="player">
+    <div class="screen"><span class="vid-id">{{ vid }}</span><div id="progress"><div id="bar"></div></div></div>
+    <div class="row">
+      <button id="play-btn" type="button">▶ Play</button>
+      <span id="view-status" data-state="idle">Не воспроизводится</span>
+    </div>
+  </section>
+  <h2 id="title">Тестовое видео {{ vid }}</h2>
+  <div class="row">
+    <span>Просмотры: <b id="views-count">0</b></span>
+    <button id="like-btn" type="button" aria-pressed="false">👍 <span id="likes-count">0</span></button>
+    <span id="net-status" data-retries="0"></span>
+  </div>
+  <section id="comments">
+    <textarea id="comment-input" placeholder="Добавьте комментарий…" aria-label="Комментарий"></textarea>
+    <div class="row">
+      <button id="comment-submit" type="button">Отправить</button>
+      <span>Комментариев: <b id="comments-count">0</b></span>
+    </div>
+    <div id="comment-error" role="alert"></div>
+    <ul id="comment-list"></ul>
+  </section>
+</main>
+<script>
+(() => {
+  const vid = document.body.dataset.vid;
+  const threshold = Number(document.body.dataset.threshold) || 2000;
+  const $ = (s) => document.querySelector(s);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let retries = 0;
+
+  async function post(path, body, tries = 4) {
+    for (let i = 1; i <= tries; i++) {
+      let res;
+      try {
+        res = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ vid, ...body }),
+        });
+      } catch (e) {
+        res = { status: 0, json: async () => ({}) };
+      }
+      if ((res.status === 503 || res.status === 0) && i < tries) {
+        retries += 1;
+        const n = $('#net-status');
+        n.dataset.retries = String(retries);
+        n.textContent = `Повтор запроса (${retries})…`;
+        await sleep(250 * i);
+        continue;
+      }
+      let data = {};
+      try { data = await res.json(); } catch (e) { /* пустой ответ */ }
+      if (res.status < 400 && retries) $('#net-status').textContent = 'Соединение восстановлено';
+      return { status: res.status, data };
+    }
+  }
+
+  function addComment(c) {
+    const li = document.createElement('li');
+    li.className = 'comment-item';
+    const a = document.createElement('div');
+    a.className = 'author';
+    a.textContent = c.author;
+    const t = document.createElement('div');
+    t.className = 'text';
+    t.textContent = c.text;   // только textContent — HTML не интерпретируется
+    li.append(a, t);
+    $('#comment-list').append(li);
+  }
+
+  function applyStats(s) {
+    $('#views-count').textContent = String(s.views);
+    $('#likes-count').textContent = String(s.likes);
+    $('#comments-count').textContent = String(s.comments_count);
+    if (typeof s.liked === 'boolean') $('#like-btn').setAttribute('aria-pressed', String(s.liked));
+  }
+
+  // --- плеер ---
+  let playing = false;
+  $('#play-btn').addEventListener('click', async () => {
+    if (playing) return;
+    playing = true;
+    $('#play-btn').disabled = true;
+    const st = $('#view-status');
+    st.dataset.state = 'playing';
+    st.textContent = 'Воспроизведение…';
+    const r0 = await post('/sandbox/api/play', {});
+    if (r0.status >= 400) { st.dataset.state = 'rejected'; st.textContent = 'Ошибка плеера'; playing = false; return; }
+    const t0 = performance.now();
+    const timer = setInterval(() => {
+      const p = Math.min(1, (performance.now() - t0) / (threshold + 300));
+      $('#bar').style.width = (p * 100).toFixed(0) + '%';
+    }, 100);
+    await sleep(threshold + 300);
+    clearInterval(timer);
+    const r = await post('/sandbox/api/view', {});
+    if (r.status === 200 && r.data.counted) {
+      st.dataset.state = 'counted'; st.textContent = 'Просмотр засчитан';
+    } else if (r.data && r.data.reason === 'already_counted') {
+      st.dataset.state = 'duplicate'; st.textContent = 'Просмотр уже был засчитан';
+    } else {
+      st.dataset.state = 'rejected'; st.textContent = 'Просмотр не засчитан';
+    }
+    if (r.data && typeof r.data.views === 'number') $('#views-count').textContent = String(r.data.views);
+    $('#play-btn').disabled = false;
+    playing = false;
+  });
+
+  // --- лайк ---
+  let likeBusy = false;
+  $('#like-btn').addEventListener('click', async () => {
+    if (likeBusy) return;
+    likeBusy = true;
+    const btn = $('#like-btn');
+    btn.disabled = true;
+    const desired = btn.getAttribute('aria-pressed') !== 'true';
+    const r = await post('/sandbox/api/like', { liked: desired });
+    if (r.status === 200) {
+      btn.setAttribute('aria-pressed', String(r.data.liked));
+      $('#likes-count').textContent = String(r.data.likes);
+    } else {
+      $('#net-status').textContent = 'Не удалось поставить лайк';
+    }
+    btn.disabled = false;
+    likeBusy = false;
+  });
+
+  // --- комментарии ---
+  let commentBusy = false;
+  $('#comment-submit').addEventListener('click', async () => {
+    if (commentBusy) return;
+    commentBusy = true;
+    $('#comment-submit').disabled = true;
+    const err = $('#comment-error');
+    err.textContent = '';
+    err.dataset.code = '';
+    const r = await post('/sandbox/api/comment', { text: $('#comment-input').value });
+    if (r.status === 201) {
+      addComment(r.data.comment);
+      $('#comments-count').textContent = String(r.data.comments_count);
+      $('#comment-input').value = '';
+    } else {
+      err.dataset.code = (r.data && r.data.error) || 'unknown';
+      err.textContent = (r.data && r.data.message) || 'Не удалось отправить комментарий';
+    }
+    $('#comment-submit').disabled = false;
+    commentBusy = false;
+  });
+
+  // --- начальная загрузка ---
+  (async () => {
+    try {
+      const res = await fetch('/sandbox/api/stats?vid=' + encodeURIComponent(vid));
+      const s = await res.json();
+      applyStats(s);
+      (s.comments || []).forEach(addComment);
+    } catch (e) {
+      $('#net-status').textContent = 'Не удалось загрузить данные';
+    }
+    document.body.dataset.ready = '1';
+  })();
+})();
+</script>
+</body>
+</html>
