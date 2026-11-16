@@ -21,10 +21,11 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
-from . import __version__
+from . import __version__, keepalive
 from .config import get_settings
 from .db import Database
 from .events import EventBus
+from .browser import playwright_available
 from .runner import RunManager
 from .sandbox.routes import build_routes as build_sandbox_routes
 from .sandbox.store import SandboxStore
@@ -105,7 +106,8 @@ async def index(request: Request) -> Response:
 
 
 async def health(request: Request) -> Response:
-    return JSONResponse({"status": "ok", "version": __version__, "browser_connected": runner.host.connected})
+    return JSONResponse({"status": "ok", "version": __version__, "browser_connected": runner.host.connected,
+                         "playwright": playwright_available()})
 
 
 # --- вход/выход ---------------------------------------------------------------
@@ -138,7 +140,7 @@ async def logout(request: Request) -> Response:
 
 @authed
 async def me(request: Request) -> Response:
-    return JSONResponse({"ok": True, "version": __version__})
+    return JSONResponse({"ok": True, "version": __version__, "playwright": playwright_available()})
 
 
 # --- сценарии и прогоны -------------------------------------------------------
@@ -296,10 +298,29 @@ async def lifespan(app: Starlette) -> AsyncIterator[None]:
         log.warning("ADMIN_TOKEN не задан. Сгенерированный токен для входа: %s", settings.admin_token)
     await runner.start()
     youtube.start_poller()
+    background: list[asyncio.Task[None]] = []
+    if await asyncio.to_thread(oauth.bootstrap_from_env):
+        log.info("Вход через Google восстановлен из YT_REFRESH_TOKEN")
+
+        async def restore_profile() -> None:
+            try:
+                await asyncio.to_thread(oauth.fetch_profile)
+            except Exception as exc:  # noqa: BLE001 — например, токен отозван: пользователь увидит это в панели
+                log.warning("Не удалось подтвердить восстановленный вход: %s", exc)
+
+        background.append(asyncio.create_task(restore_profile()))
+    if settings.yt_watch_videos:
+        added = await youtube.bootstrap_watch(settings.yt_watch_videos)
+        log.info("Список отслеживания: добавлено из YT_WATCH_VIDEOS — %d", added)
+    if settings.keepalive_url:
+        background.append(asyncio.create_task(keepalive.run(settings.keepalive_url, settings.keepalive_interval_min)))
     log.info("Панель запущена: http://%s:%d  (песочница: %s)", settings.host, settings.port, settings.sandbox_base_url)
     try:
         yield
     finally:
+        for task in background:
+            task.cancel()
+        await asyncio.gather(*background, return_exceptions=True)
         await youtube.stop_poller()
         await runner.stop()
         db.close()

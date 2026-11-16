@@ -21,7 +21,7 @@ from .urlutils import extract_video_id
 log = logging.getLogger("yt-tester.runner")
 
 INSTALL_HINT = (
-    "Chromium не найден или не запускается. Выполните на сервере: "
+    "Браузер для песочницы недоступен. Если Playwright установлен, выполните на сервере: "
     "playwright install --with-deps chromium"
 )
 

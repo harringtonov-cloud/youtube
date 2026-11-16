@@ -66,6 +66,13 @@ class Settings:
     yt_poll_interval_min: int = 30
     yt_write_limit_per_day: int = 20
     yt_daily_quota: int = 10_000
+    # Хостинги с временным диском (Render Free): вход и список видео хранятся в переменных окружения
+    yt_refresh_token: str = ""
+    yt_token_scope: str = ""
+    yt_watch_videos: tuple[str, ...] = ()
+    # «Пинг» собственного публичного адреса, чтобы бесплатный хостинг не усыплял сервис
+    keepalive_url: str = ""
+    keepalive_interval_min: int = 10
     # Адреса Google. Меняются только в автотестах (тестовый двойник Google).
     google_oauth_base: str = "https://oauth2.googleapis.com"
     google_auth_url: str = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -121,6 +128,12 @@ def get_settings() -> Settings:
         yt_poll_interval_min=_env_int("YT_POLL_INTERVAL_MIN", 30, 5),
         yt_write_limit_per_day=_env_int("YT_WRITE_LIMIT_PER_DAY", 20, 1),
         yt_daily_quota=_env_int("YT_DAILY_QUOTA", 10_000, 100),
+        yt_refresh_token=os.environ.get("YT_REFRESH_TOKEN", "").strip(),
+        yt_token_scope=os.environ.get("YT_TOKEN_SCOPE", "").strip(),
+        yt_watch_videos=tuple(v.strip() for v in os.environ.get("YT_WATCH_VIDEOS", "").split(",") if v.strip()),
+        keepalive_url=(os.environ.get("KEEPALIVE_URL", "").strip()
+                       or os.environ.get("RENDER_EXTERNAL_URL", "").strip()).rstrip("/"),
+        keepalive_interval_min=min(_env_int("KEEPALIVE_INTERVAL_MIN", 10, 1), 14),
         google_oauth_base=os.environ.get("GOOGLE_OAUTH_BASE", "").strip().rstrip("/")
         or "https://oauth2.googleapis.com",
         google_auth_url=os.environ.get("GOOGLE_AUTH_URL", "").strip()

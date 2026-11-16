@@ -13,13 +13,14 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable
-
-from playwright.async_api import BrowserContext, Page
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable
 
 from .browser import BrowserHost, assert_loopback
 from .config import Settings
 from .sandbox.store import COMMENT_LIMIT, MAX_COMMENT_LEN, SandboxStore
+
+if TYPE_CHECKING:
+    from playwright.async_api import BrowserContext, Page
 
 
 class CheckFailed(Exception):

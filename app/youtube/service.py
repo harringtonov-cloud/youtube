@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 from ..config import Settings
 from ..db import Database
 from ..events import EventBus
+from ..urlutils import is_valid_video_id
 from .http import ApiError, call
 from .oauth import SCOPE_FORCE_SSL, SCOPE_READONLY, SCOPE_YOUTUBE, OAuthManager
 
@@ -380,6 +381,16 @@ class YouTubeService:
         await self.bus.publish({"type": "yt_snapshot", **snap})
         return v
 
+    async def bootstrap_watch(self, ids: tuple[str, ...]) -> int:
+        """Добавляет видео из YT_WATCH_VIDEOS (для хостингов, где диск стирается). Без обращений к API."""
+        existing = {w["video_id"] for w in await asyncio.to_thread(self.db.watch_list)}
+        added = 0
+        for vid in ids:
+            if vid not in existing and is_valid_video_id(vid):
+                await asyncio.to_thread(self.db.watch_add, vid, None, None)
+                added += 1
+        return added
+
     def start_poller(self) -> None:
         if self._poller is None:
             self._poller = asyncio.create_task(self._poll_loop(), name="yt-poller")
@@ -392,8 +403,10 @@ class YouTubeService:
             await asyncio.gather(task, return_exceptions=True)
 
     async def _poll_loop(self) -> None:
+        delay = 20.0  # первый замер вскоре после запуска (важно после перезапуска хостинга)
         while True:
-            await asyncio.sleep(self.s.yt_poll_interval_min * 60)
+            await asyncio.sleep(delay)
+            delay = self.s.yt_poll_interval_min * 60
             if not self.can_read:
                 continue
             try:

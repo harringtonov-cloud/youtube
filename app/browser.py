@@ -9,13 +9,16 @@ Playwright, не системный Chrome) и имеет право обращ�
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import logging
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
-
-from playwright.async_api import Browser, BrowserContext, Playwright, Route, async_playwright
 
 from .config import LOOPBACK_HOSTS, Settings
 from .sandbox.routes import KEY_COOKIE
+
+if TYPE_CHECKING:  # Playwright необязателен: вкладка YouTube работает и без него
+    from playwright.async_api import Browser, BrowserContext, Playwright, Route
 
 log = logging.getLogger("yt-tester.browser")
 
@@ -26,6 +29,10 @@ LAUNCH_ARGS = [
     "--disable-gpu",
     "--mute-audio",
 ]
+
+
+def playwright_available() -> bool:
+    return importlib.util.find_spec("playwright") is not None
 
 
 def assert_loopback(url: str) -> None:
@@ -59,6 +66,13 @@ class BrowserHost:
                 await self._shutdown_locked()
             assert_loopback(self.settings.sandbox_base_url)
             if self._pw is None:
+                try:
+                    from playwright.async_api import async_playwright
+                except ImportError:
+                    raise RuntimeError(
+                        "Библиотека Playwright не установлена на этом сервере (песочница недоступна; "
+                        "вкладка «YouTube API» от неё не зависит)"
+                    ) from None
                 self._pw = await async_playwright().start()
             self._browser = await self._pw.chromium.launch(headless=True, args=LAUNCH_ARGS)
             log.info("Chromium запущен (headless) на сервере")

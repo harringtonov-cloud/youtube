@@ -40,6 +40,10 @@ function ytInit() {
     $("#yt-edit-form").addEventListener("submit", onEdit);
     $("#yt-refresh").addEventListener("click", onRefreshWatch);
     $("#yt-more").addEventListener("click", () => loadComments(false));
+    $("#yt-export-copy").addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText($("#yt-export-text").value); toast("Скопировано"); }
+      catch { $("#yt-export-text").select(); toast("Выделено — скопируйте вручную"); }
+    });
     $("#yt-comments").addEventListener("click", onCommentClick);
     $("#yt-watchlist").addEventListener("click", onWatchClick);
     document.querySelectorAll("[data-order]").forEach((b) => b.addEventListener("click", () => {
@@ -105,6 +109,7 @@ function renderStatus() {
 
   const btns = [];
   if (st.connected) {
+    btns.push(`<button class="btn ghost small" data-act="export" type="button">Токен для хостинга</button>`);
     btns.push(`<button class="btn ghost small" data-act="logout" type="button">Выйти и отозвать доступ</button>`);
   } else if (st.oauth_client) {
     if (st.device.status === "pending") {
@@ -164,9 +169,16 @@ async function onAuthClick(e) {
     } else if (btn.dataset.act === "web") {
       const r = await api("/api/yt/auth/web/start");
       location.href = r.url;
+    } else if (btn.dataset.act === "export") {
+      if (!confirm("Показать секретный токен доступа? Он нужен только чтобы вставить его в переменные окружения хостинга.")) return;
+      const r = await api("/api/yt/auth/export", { method: "POST" });
+      $("#yt-export-text").value = Object.entries(r).map(([k, v]) => `${k}=${v}`).join("\n");
+      $("#yt-export").classList.remove("hidden");
     } else if (btn.dataset.act === "logout") {
       if (!confirm("Выйти и отозвать доступ приложения к вашему аккаунту Google?")) return;
       yt.status = await api("/api/yt/auth/logout", { method: "POST" });
+      $("#yt-export").classList.add("hidden");
+      $("#yt-export-text").value = "";
       renderStatus();
       toast("Вы вышли, доступ отозван");
     }

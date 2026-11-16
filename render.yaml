@@ -1,0 +1,30 @@
+# Render Blueprint: бесплатный веб-сервис. Подробности в README (раздел «Render»).
+services:
+  - type: web
+    name: yt-tester
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements-render.txt
+    startCommand: python -m app
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: ADMIN_TOKEN        # пароль панели: сгенерируется, посмотрите в Environment
+        generateValue: true
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI   # https://<ваш-сервис>.onrender.com/oauth/callback
+        sync: false
+      - key: YT_REFRESH_TOKEN      # заполняется после первого входа (кнопка «Токен для хостинга»)
+        sync: false
+      - key: YT_TOKEN_SCOPE
+        sync: false
+      - key: YT_WATCH_VIDEOS       # ID видео через запятую для отслеживания
+        sync: false

@@ -14,6 +14,7 @@ from unittest import mock as umock
 
 os.environ["NO_PROXY"] = os.environ["no_proxy"] = "127.0.0.1,localhost"
 
+from app import keepalive  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.db import Database  # noqa: E402
 from app.events import EventBus  # noqa: E402
@@ -298,6 +299,60 @@ class AuthedTests(Base):
         while not q.empty():
             events.append(q.get_nowait())
         self.assertTrue(any(e["type"] == "yt_action" and e["action"]["name"] == "videos.list" for e in events))
+
+
+class HostingTests(Base):
+    """Хостинги с временным диском: вход и список видео живут в переменных окружения."""
+
+    async def test_login_restored_from_env_token(self):
+        self.google.refresh["REFRESH_ENV"] = SCOPE_SSL
+        self.settings.yt_refresh_token = "REFRESH_ENV"
+        self.settings.yt_token_scope = SCOPE_SSL
+        self.assertFalse(self.oauth.connected)
+        self.assertTrue(self.oauth.bootstrap_from_env())
+        self.assertTrue(self.oauth.connected)
+        self.assertFalse(self.oauth.bootstrap_from_env(), "повторно токены из env не перезаписываются")
+        v = await self.svc.video(OTHER)  # access token получается через refresh
+        self.assertEqual(v["views"], 1000)
+        self.assertGreaterEqual(self.google.count("POST", "/oauth/token"), 1)
+        self.assertTrue(self.oauth.has_scope(SCOPE_SSL))
+        self.assertEqual((await asyncio.to_thread(self.oauth.fetch_profile))["title"], "Мой канал")
+
+    async def test_env_token_default_scope_and_revoked_token(self):
+        self.settings.yt_refresh_token = "REFRESH_UNKNOWN"
+        self.assertTrue(self.oauth.bootstrap_from_env())
+        self.assertEqual(self.oauth.granted_scopes(), {SCOPE_YT})
+        with self.assertRaises(ApiError) as cm:
+            await self.svc.video(OTHER)
+        self.assertEqual(cm.exception.reason, "invalid_grant")
+        self.assertFalse(self.oauth.connected)
+
+    async def test_export_tokens(self):
+        with self.assertRaises(ApiError):
+            self.oauth.export_tokens()
+        await self.login(SCOPE_SSL)
+        self.assertEqual(self.oauth.export_tokens(), {"YT_REFRESH_TOKEN": "REFRESH_T", "YT_TOKEN_SCOPE": SCOPE_SSL})
+
+    async def test_watch_bootstrap_is_idempotent_and_keeps_titles(self):
+        await self.login(SCOPE_YT)
+        await self.svc.add_watch(OTHER)
+        added = await self.svc.bootstrap_watch((OTHER, OWN, "bad id!"))
+        self.assertEqual(added, 1)
+        items = {w["video_id"]: w for w in self.db.watch_list()}
+        self.assertEqual(set(items), {OTHER, OWN})
+        self.assertEqual(items[OTHER]["title"], "Чужое видео", "название уже известного видео не стирается")
+        self.assertEqual(await self.svc.bootstrap_watch((OTHER, OWN)), 0)
+        res = await self.svc.poll_once()
+        self.assertEqual(res["polled"], 2)
+        self.assertEqual({w["video_id"]: w["title"] for w in self.db.watch_list()}[OWN], "Моё видео")
+
+    async def test_keepalive_pings_health_endpoint(self):
+        base = self.settings.youtube_api_base.rsplit("/youtube/v3", 1)[0]
+        task = asyncio.create_task(keepalive.run(base, 0.002))
+        await asyncio.sleep(0.8)
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        self.assertGreaterEqual(self.google.count("GET", "/api/health"), 2)
 
 
 if __name__ == "__main__":

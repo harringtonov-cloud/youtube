@@ -85,6 +85,10 @@ def build_routes(
         await oauth.logout()
         return JSONResponse(await service.status())
 
+    @handled
+    async def export_tokens(request: Request) -> Response:
+        return JSONResponse(await asyncio.to_thread(oauth.export_tokens))
+
     async def oauth_callback(request: Request) -> Response:
         # Без cookie панели: Google возвращает пользователя кросс-сайтовым переходом.
         # Защита от подделки — одноразовый state, созданный авторизованным администратором.
@@ -191,6 +195,7 @@ def build_routes(
         Route("/api/yt/auth/device/cancel", device_cancel, methods=["POST"]),
         Route("/api/yt/auth/web/start", web_start),
         Route("/api/yt/auth/logout", logout, methods=["POST"]),
+        Route("/api/yt/auth/export", export_tokens, methods=["POST"]),
         Route("/oauth/callback", oauth_callback),
         Route("/api/yt/video", video),
         Route("/api/yt/comments", comments),

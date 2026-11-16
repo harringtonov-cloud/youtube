@@ -62,6 +62,44 @@ Google OAuth 2.0, плюс отдельная вкладка с автотест
 6. Квота по умолчанию — 10 000 единиц в сутки (обнуляется в полночь по тихоокеанскому времени).
    Чтение стоит 1, лайк/комментарий/правка — 50 единиц.
 
+## Бесплатный запуск без VPS: Render
+
+Подходит для вкладки «YouTube API» (без Playwright; вкладка песочницы отключается сама). Файлы:
+`render.yaml` (описание сервиса) и `requirements-render.txt` (без браузера).
+
+**Что важно знать о бесплатном тарифе** (по [документации Render](https://render.com/docs/free), на ноябрь 2026):
+- сервис засыпает через **15 минут без входящих запросов**, пробуждение занимает около минуты;
+- **диск временный**: файлы и SQLite стираются при каждом перезапуске и пробуждении;
+- 750 бесплатных часов в месяц на аккаунт; сервис, который не спит, расходует почти весь лимит
+  (около 744 ч в месяце из 31 дня), поэтому второй такой сервис на том же аккаунте уже не поместится;
+- Render называет бесплатные инстансы непригодными для production и может перезапустить их в любой момент.
+
+**Как приложение с этим справляется**
+- *Вход в Google не пропадает:* после первого входа нажмите в панели «Токен для хостинга», скопируйте
+  `YT_REFRESH_TOKEN` и `YT_TOKEN_SCOPE` в Environment сервиса. При каждом запуске вход восстанавливается из них.
+- *Список отслеживания:* задайте `YT_WATCH_VIDEOS=id1,id2` — видео добавляются при каждом запуске, первый замер через ~20 с.
+- *Не засыпать:* встроенный пинг (`KEEPALIVE_URL` берётся из `RENDER_EXTERNAL_URL`) раз в 10 минут обращается к
+  собственному публичному адресу `/api/health`. **Но заснувший сервис сам себя не разбудит** (код внутри него не
+  выполняется), а работает ли пинг изнутри так же, как внешний, я не проверял. Надёжнее добавить внешний пингер:
+  бесплатные [UptimeRobot](https://uptimerobot.com) или [cron-job.org](https://cron-job.org), запрос
+  `GET https://<сервис>.onrender.com/api/health` каждые 5–14 минут.
+- *Что всё же теряется:* история замеров статистики и журнал обращений стираются при перезапуске. Накопление
+  графиков на бесплатном Render ненадёжно; для долгой истории нужен диск (платный план) или свой сервер.
+- HTTPS у Render есть сразу, поэтому **веб-вход и комментарии работают** на адресе `https://<сервис>.onrender.com`.
+
+**Шаги**
+1. Залейте проект в свой репозиторий GitHub (он уже там: `harringtonov-cloud/youtube`).
+2. На [render.com](https://render.com) → New → **Blueprint** → выберите репозиторий (подхватится `render.yaml`).
+   Либо New → Web Service: Build `pip install -r requirements-render.txt`, Start `python -m app`.
+3. В Environment заполните `YOUTUBE_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (клиент типа *Web application*),
+   `GOOGLE_REDIRECT_URI=https://<сервис>.onrender.com/oauth/callback`. Тот же адрес добавьте в Authorized redirect URIs
+   в Google Cloud. `ADMIN_TOKEN` Render сгенерирует сам — посмотрите его в Environment.
+4. Откройте адрес сервиса, войдите по `ADMIN_TOKEN`, нажмите «Войти через Google (веб)».
+5. Нажмите «Токен для хостинга», вставьте `YT_REFRESH_TOKEN` и `YT_TOKEN_SCOPE` в Environment, сохраните.
+6. Добавьте внешний пингер (см. выше).
+
+Помните про 7-дневный срок доступа у приложений Google в режиме Testing.
+
 ## Установка на VPS (Ubuntu/Debian, Python 3.12+)
 
 ```bash
@@ -121,11 +159,12 @@ app/
 │   ├── oauth.py       # OAuth 2.0: device flow + веб-вход, обновление и отзыв токенов
 │   ├── service.py     # YouTube Data API: чтение, лайк, комментарии, правка, квота, поллер
 │   └── routes.py      # HTTP-маршруты вкладки
-├── runner.py, browser.py, scenarios.py, sandbox/   # песочница и Playwright
+├── keepalive.py       # пинг собственного адреса (бесплатные хостинги)
+├── runner.py, browser.py, scenarios.py, sandbox/   # песочница и Playwright (необязательны)
 ├── db.py              # SQLite: история тестов, журнал API, отслеживание, токены
 ├── templates/, static/  # интерфейс (index.html, app.js, yt.js, app.css)
 tests/                 # юнит-тесты и тестовый двойник Google
-deploy/, Dockerfile, docker-compose.yml, requirements.txt, .env.example
+deploy/, Dockerfile, docker-compose.yml, render.yaml, requirements.txt, requirements-render.txt, .env.example
 ```
 
 ## Тесты
@@ -156,6 +195,6 @@ python -m unittest discover -s tests -t .
 `GET /api/yt/status`, `GET /api/yt/video?url=`, `GET /api/yt/comments?video=`,
 `POST /api/yt/rate`, `POST /api/yt/comment`, `POST /api/yt/reply`, `DELETE /api/yt/comment/{id}`,
 `POST /api/yt/video/update`, `GET|POST /api/yt/watch`, `POST /api/yt/watch/refresh`,
-`GET /api/yt/actions`, `POST /api/yt/auth/device/start|cancel`, `GET /api/yt/auth/web/start`,
+`GET /api/yt/actions`, `POST /api/yt/auth/export`, `POST /api/yt/auth/device/start|cancel`, `GET /api/yt/auth/web/start`,
 `POST /api/yt/auth/logout`, `GET /oauth/callback`, а также маршруты песочницы `/api/runs…`, `/api/events` (SSE).
 Все, кроме `/api/login`, `/api/health`, `/oauth/callback`, требуют авторизации.

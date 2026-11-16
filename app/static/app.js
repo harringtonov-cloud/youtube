@@ -342,11 +342,16 @@ function handleEvent(ev) {
 
 /* ---------- запуск ---------- */
 async function boot() {
+  let me;
   try {
-    await api("/api/me");
+    me = await api("/api/me");
   } catch {
     showLogin();
     return;
+  }
+  if (me && me.playwright === false) {
+    $("#start").disabled = true;
+    $("#form-error").textContent = "На этом сервере Playwright не установлен — песочница недоступна. Вкладка «YouTube API» работает.";
   }
   $("#login").classList.add("hidden");
   $("#app").classList.remove("hidden");

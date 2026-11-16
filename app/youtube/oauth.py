@@ -100,6 +100,24 @@ class OAuthManager:
         self.db.kv_set(TOKENS_KEY, json.dumps(tokens))
         return tokens
 
+    def bootstrap_from_env(self) -> bool:
+        """Восстанавливает вход из YT_REFRESH_TOKEN, если в базе токенов нет (диск хостинга стёрт)."""
+        if self.tokens() or not self.s.yt_refresh_token:
+            return False
+        self.db.kv_set(TOKENS_KEY, json.dumps({
+            "access_token": "", "refresh_token": self.s.yt_refresh_token, "expires_at": 0,
+            "scope": self.s.yt_token_scope or SCOPE_YOUTUBE, "token_type": "Bearer",
+            "flow": "env", "obtained_at": time.time(),
+        }))
+        return True
+
+    def export_tokens(self) -> dict[str, str]:
+        """Значения для переменных окружения хостинга (чувствительные данные!)."""
+        t = self.tokens() or {}
+        if not t.get("refresh_token"):
+            raise ApiError(404, "no_refresh_token", "Нет refresh-токена: войдите через Google заново")
+        return {"YT_REFRESH_TOKEN": str(t["refresh_token"]), "YT_TOKEN_SCOPE": str(t.get("scope", ""))}
+
     def clear(self) -> None:
         self.db.kv_delete(TOKENS_KEY)
         self.db.kv_delete(PROFILE_KEY)

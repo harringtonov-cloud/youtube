@@ -51,6 +51,11 @@
       <div id="yt-status" class="muted">Загрузка…</div>
       <div id="yt-device" class="device hidden"></div>
       <div class="btn-row" id="yt-auth-btns"></div>
+      <div id="yt-export" class="stack hidden">
+        <div class="error">⚠ Секретные данные доступа к вашему аккаунту. Никому не показывайте. Вставьте в переменные окружения хостинга.</div>
+        <textarea id="yt-export-text" rows="4" readonly></textarea>
+        <button id="yt-export-copy" class="btn small" type="button">Скопировать</button>
+      </div>
       <div id="yt-auth-error" class="error"></div>
       <div class="quota">
         <div class="row-between"><span class="muted">Квота YouTube API (оценка)</span><span id="yt-quota-text">—</span></div>
