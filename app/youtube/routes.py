@@ -23,7 +23,11 @@ REASON_TEXT = {
     "dailyLimitExceeded": "Суточный лимит YouTube API исчерпан",
     "commentsDisabled": "Владелец отключил комментарии под этим видео",
     "videoNotFound": "Видео не найдено, удалено или недоступно",
-    "forbidden": "Доступ запрещён (видео приватное или нет прав)",
+    "forbidden": "Google отказал в доступе (403). Частые причины: у API-ключа стоят ограничения (по сайту/IP или не включён YouTube Data API v3), "
+                 "ключ из другого проекта, либо видео приватное",
+    "accessNotConfigured": "YouTube Data API v3 не включён в проекте этого ключа",
+    "keyInvalid": "API-ключ неверный: проверьте YOUTUBE_API_KEY",
+    "badRequest": "Google отклонил запрос (400). Проверьте API-ключ",
     "insufficientPermissions": "Недостаточно прав у текущего входа. Выйдите и войдите заново",
     "processingFailure": "YouTube не смог обработать запрос, попробуйте позже",
     "invalid_client": "Неверные GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET",
@@ -34,10 +38,10 @@ REASON_TEXT = {
 
 def api_error_response(exc: ApiError) -> JSONResponse:
     status = exc.status if 400 <= exc.status < 600 else 502
-    return JSONResponse(
-        {"error": REASON_TEXT.get(exc.reason, exc.message), "reason": exc.reason, "detail": exc.message},
-        status_code=status,
-    )
+    text = REASON_TEXT.get(exc.reason, exc.message)
+    if exc.reason in {"forbidden", "badRequest", "accessNotConfigured"} and exc.message and exc.message not in text:
+        text += f". Ответ Google: «{exc.message[:300]}»"  # настоящая причина, чтобы не гадать
+    return JSONResponse({"error": text, "reason": exc.reason, "detail": exc.message}, status_code=status)
 
 
 def build_routes(
