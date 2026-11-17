@@ -100,6 +100,22 @@ Google OAuth 2.0, плюс отдельная вкладка с автотест
 
 Помните про 7-дневный срок доступа у приложений Google в режиме Testing.
 
+## Бесплатный запуск с песочницей: Hugging Face Spaces
+
+В отличие от Render, на Spaces есть место для Chromium (бесплатно 2 vCPU и 16 ГБ памяти, по
+[документации](https://huggingface.co/docs/hub/spaces-sdks-docker) и пересказам условий), поэтому работают **обе вкладки**. Файлы лежат в `deploy/huggingface/`.
+
+Особенности: контейнер запускается от пользователя 1000 (учтено в Dockerfile), наружу открыт один порт 7860,
+**диск стирается при перезапуске**, а бесплатные Spaces засыпают при долгом простое (срок в документации не указан).
+Исходящие соединения разрешены только на порты 80, 443 и 8080 (этого хватает для Google API).
+Вход и список видео, как и на Render, хранятся в переменных (`YT_REFRESH_TOKEN`, `YT_TOKEN_SCOPE`, `YT_WATCH_VIDEOS`).
+
+Шаги: создайте Space (SDK **Docker**), добавьте в него два файла из `deploy/huggingface/` (`README.md` и `Dockerfile`),
+в **Settings → Variables and secrets** задайте `ADMIN_TOKEN`, `YOUTUBE_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`GOOGLE_REDIRECT_URI=https://<пользователь>-<space>.hf.space/oauth/callback`, `KEEPALIVE_URL=https://<пользователь>-<space>.hf.space`.
+Открывайте панель по прямому адресу `*.hf.space`, а не внутри страницы huggingface.co (в iframe cookie блокируются).
+Обновление после нового коммита: **Settings → Factory rebuild**.
+
 ## Установка на VPS (Ubuntu/Debian, Python 3.12+)
 
 ```bash
