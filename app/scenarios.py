@@ -11,7 +11,7 @@ import asyncio
 import contextlib
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable
 
@@ -43,6 +43,7 @@ class ScenarioContext:
     log: LogFn
     notify_sandbox: SandboxChanged
     blocked: list[str]
+    options: dict[str, Any] = field(default_factory=dict)
 
     # --- проверки -------------------------------------------------------------
     async def check(self, condition: bool, message: str) -> None:
@@ -312,6 +313,31 @@ async def scenario_safety_guard(ctx: ScenarioContext) -> str:
     return "Предохранитель активен: наружу (включая YouTube) трафик не уходит"
 
 
+async def scenario_playback_repeat(ctx: ScenarioContext) -> str:
+    """Серия воспроизведений на СОБСТВЕННОМ тестовом плеере: каждый запуск — новая сессия.
+
+    Цель только песочница на этом сервере (адрес loopback). Внешние платформы не затрагиваются.
+    """
+    repeat = int(ctx.options.get("repeat", 1))
+    threshold = ctx.settings.sandbox_view_threshold_ms
+    wait_ms = threshold + 15000
+    await ctx.reset_sandbox()
+    base = ctx.counters()["views"]
+    await ctx.log("info", f"Серия из {repeat} воспроизведений на тестовом плеере (порог {threshold} мс)")
+    for i in range(1, repeat + 1):
+        async with ctx.browser_context() as bctx:
+            page = await ctx.open_watch(bctx)
+            await page.click("#play-btn")
+            await page.wait_for_function(
+                "() => document.querySelector('#view-status').dataset.state === 'counted'",
+                timeout=wait_ms,
+            )
+        await ctx.notify_sandbox(ctx.video_id)
+        counted = ctx.counters()["views"]
+        await ctx.check(counted == base + i, f"Воспроизведение {i} из {repeat} засчитано (на сервере {counted})")
+    return f"Серия: {repeat} из {repeat} воспроизведений засчитаны на тестовом плеере"
+
+
 @dataclass(frozen=True)
 class Scenario:
     name: str
@@ -328,6 +354,8 @@ SCENARIOS: dict[str, Scenario] = {
         Scenario("comments", "Комментарии", "Валидация, XSS-защита, лимит частоты", scenario_comments),
         Scenario("recovery", "Автовосстановление", "Сбой бэкенда и перезапуск браузера", scenario_recovery),
         Scenario("safety_guard", "Предохранитель", "Внешний трафик (YouTube) заблокирован", scenario_safety_guard),
+        Scenario("playback_repeat", "Серия воспроизведений",
+                 "N запусков на собственном тестовом плеере (только песочница)", scenario_playback_repeat),
     )
 }
 

@@ -26,10 +26,14 @@ from .config import get_settings
 from .db import Database
 from .events import EventBus
 from .browser import playwright_available
+from .live.routes import build_routes as build_live_routes
+from .live.session import LiveBrowser
 from .runner import RunManager
 from .sandbox.routes import build_routes as build_sandbox_routes
 from .sandbox.store import SandboxStore
 from .scenarios import SCENARIOS
+from .settings_store import build_routes as build_settings_routes
+from .settings_store import load as load_project_settings
 from .youtube.oauth import OAuthManager
 from .youtube.routes import build_routes as build_youtube_routes
 from .youtube.service import YouTubeService
@@ -49,6 +53,7 @@ store = SandboxStore(settings.sandbox_view_threshold_ms)
 runner = RunManager(settings, db, bus, store)
 oauth = OAuthManager(settings, db, bus)
 youtube = YouTubeService(settings, db, bus, oauth)
+live = LiveBrowser(settings, bus)  # ручной удалённый браузер (не участвует в автотестах)
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
 
 COOKIE_NAME = "yt_admin"
@@ -165,8 +170,11 @@ async def create_run(request: Request) -> Response:
     names = data.get("scenarios")
     if not isinstance(names, list):
         return err("Поле scenarios должно быть списком")
+    project = await asyncio.to_thread(load_project_settings, db)
+    raw_opts = data.get("options") if isinstance(data.get("options"), dict) else {}
+    options = {"repeat": raw_opts.get("repeat", project["repeat"])}
     try:
-        run = await runner.submit(str(data.get("url", "")), [str(n) for n in names])
+        run = await runner.submit(str(data.get("url", "")), [str(n) for n in names], options)
     except InvalidYouTubeUrl as exc:
         return err(str(exc))
     except ValueError as exc:
@@ -322,6 +330,7 @@ async def lifespan(app: Starlette) -> AsyncIterator[None]:
             task.cancel()
         await asyncio.gather(*background, return_exceptions=True)
         await youtube.stop_poller()
+        await live.shutdown()
         await runner.stop()
         db.close()
 
@@ -345,6 +354,8 @@ routes = [
     Route("/api/events", events),
     *build_sandbox_routes(settings, store, bus),
     *build_youtube_routes(youtube, oauth, authed, json_body),
+    *build_live_routes(live, lambda: load_project_settings(db), authed, json_body),
+    *build_settings_routes(db, authed, json_body),
     Mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static"),
 ]
 

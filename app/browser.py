@@ -103,8 +103,12 @@ class BrowserHost:
         async with self._lock:
             await self._shutdown_locked()
 
-    async def new_context(self, blocked: list[str]) -> BrowserContext:
-        """Новый изолированный контекст (= новая «сессия» с чистыми cookie)."""
+    async def new_context(self, blocked: list[str], guarded: bool = True) -> BrowserContext:
+        """Новый изолированный контекст (= новая «сессия» с чистыми cookie).
+
+        guarded=True — автотесты: только loopback и ключ песочницы.
+        guarded=False — ручной удалённый браузер: пользователь сам открывает сайты.
+        """
         browser = await self.ensure()
         context = await browser.new_context(
             viewport={"width": 1000, "height": 800},
@@ -124,14 +128,15 @@ class BrowserHost:
             log.warning("Заблокирован внешний запрос: %s", url)
             await route.abort("blockedbyclient")
 
-        await context.route("**/*", guard)
-        await context.add_cookies(
-            [
-                {
-                    "name": KEY_COOKIE,
-                    "value": self.settings.sandbox_key,
-                    "url": self.settings.sandbox_base_url,
-                }
-            ]
-        )
+        if guarded:
+            await context.route("**/*", guard)
+            await context.add_cookies(
+                [
+                    {
+                        "name": KEY_COOKIE,
+                        "value": self.settings.sandbox_key,
+                        "url": self.settings.sandbox_base_url,
+                    }
+                ]
+            )
         return context

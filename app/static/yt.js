@@ -66,14 +66,16 @@ function ytRefreshAll() {
 }
 
 function bindTabs() {
+  const names = [...document.querySelectorAll(".tab")].map((t) => t.dataset.tab);
   const show = (name) => {
+    if (!names.includes(name)) name = "youtube";
     document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
-    $("#tab-youtube").classList.toggle("hidden", name !== "youtube");
-    $("#tab-sandbox").classList.toggle("hidden", name !== "sandbox");
+    names.forEach((n) => $("#tab-" + n).classList.toggle("hidden", n !== name));
     history.replaceState(null, "", "#" + name);
+    if (typeof onTabShow === "function") onTabShow(name);
   };
   document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => show(t.dataset.tab)));
-  show(location.hash === "#sandbox" ? "sandbox" : "youtube");
+  show(location.hash.slice(1));
 }
 
 /* ---------- подключение ---------- */

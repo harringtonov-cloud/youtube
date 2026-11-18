@@ -91,6 +91,9 @@ class Database:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=ON")
             self._conn.executescript(SCHEMA)
+            cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(runs)").fetchall()}
+            if "options" not in cols:  # миграция для баз, созданных до появления параметров прогона
+                self._conn.execute("ALTER TABLE runs ADD COLUMN options TEXT NOT NULL DEFAULT '{}'")
             self._conn.commit()
         try:  # в базе лежат OAuth-токены: доступ только владельцу
             os.chmod(path, 0o600)
@@ -102,12 +105,14 @@ class Database:
             self._conn.close()
 
     # --- runs -----------------------------------------------------------
-    def create_run(self, run_id: str, url: str, video_id: str, scenarios: list[str]) -> dict[str, Any]:
+    def create_run(self, run_id: str, url: str, video_id: str, scenarios: list[str],
+                   options: dict[str, Any] | None = None) -> dict[str, Any]:
         now = time.time()
         with self._lock:
             self._conn.execute(
-                "INSERT INTO runs (id, url, video_id, scenarios, status, created_at) VALUES (?,?,?,?,?,?)",
-                (run_id, url, video_id, json.dumps(scenarios), "queued", now),
+                "INSERT INTO runs (id, url, video_id, scenarios, status, created_at, options) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (run_id, url, video_id, json.dumps(scenarios), "queued", now, json.dumps(options or {})),
             )
             self._conn.commit()
         return self.get_run(run_id) or {}
@@ -129,6 +134,7 @@ class Database:
     def _run_row(row: sqlite3.Row) -> dict[str, Any]:
         d = dict(row)
         d["scenarios"] = json.loads(d["scenarios"] or "[]")
+        d["options"] = json.loads(d.get("options") or "{}")
         d["summary"] = json.loads(d["summary"]) if d.get("summary") else None
         return d
 

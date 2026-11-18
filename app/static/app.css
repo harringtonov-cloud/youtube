@@ -217,3 +217,23 @@ input[type="text"] { margin: 0; }
 .badge.k-write { color: var(--warn); background: #fbbf241f; }
 .badge.k-read { color: var(--info); background: #7dd3fc1f; }
 .badge.k-auth { color: var(--accent); background: #6d7cff22; }
+
+/* ===== Вкладки (4 шт.) и удалённый браузер ===== */
+.tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs .tab { flex: 0 0 auto; white-space: nowrap; padding: 11px 14px; }
+.live-bar { display: flex; gap: 8px; margin: 10px 0 0; align-items: stretch; }
+.live-bar input { flex: 1; min-width: 0; margin: 0; }
+.live-bar .btn { flex: none; }
+.live-nav-btns, .live-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.screen-wrap {
+  margin-top: 12px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line);
+  background: #05060a; min-height: 160px; display: grid; place-items: center;
+}
+#live-screen { width: 100%; height: auto; display: block; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.screen-empty { padding: 40px 16px; text-align: center; font-size: 14px; }
+#live-meta { word-break: break-all; }
+.btn-row .pill { align-self: center; }
+@media (max-width: 480px) {
+  .tabs .tab { padding: 11px 9px; font-size: 14px; }
+}

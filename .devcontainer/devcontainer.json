@@ -21,6 +21,13 @@
     }
   },
 
+  // Два экземпляра Chromium (автотесты и ручной браузер) требуют памяти.
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "4gb",
+    "storage": "32gb"
+  },
+
   "customizations": {
     "vscode": {
       "extensions": [

@@ -18,6 +18,7 @@ const state = {
   level: "all",
   es: null,
   scenarioState: {},        // name -> {status, attempt}
+  defaults: null,           // настройки проекта с сервера (см. settings.js)
 };
 
 /* ---------- утилиты ---------- */
@@ -79,9 +80,10 @@ $("#logout").addEventListener("click", async () => {
 
 /* ---------- сценарии и форма ---------- */
 function renderScenarios() {
+  const pick = state.defaults ? state.defaults.scenarios : state.scenarios.map((s) => s.name);
   $("#scenarios").innerHTML = state.scenarios.map((s) => `
     <label class="scn">
-      <input type="checkbox" name="scenario" value="${esc(s.name)}" checked>
+      <input type="checkbox" name="scenario" value="${esc(s.name)}" ${pick.includes(s.name) ? "checked" : ""}>
       <div><b>${esc(s.title)}</b><span>${esc(s.description)}</span></div>
     </label>`).join("");
 }
@@ -119,7 +121,11 @@ $("#run-form").addEventListener("submit", async (e) => {
   if (!scenarios.length) { err.textContent = "Выберите хотя бы один сценарий"; return; }
   $("#start").disabled = true;
   try {
-    const run = await api("/api/runs", { method: "POST", body: { url: $("#url").value.trim(), scenarios } });
+    const repeat = Number($("#repeat").value);
+    const run = await api("/api/runs", {
+      method: "POST",
+      body: { url: $("#url").value.trim(), scenarios, options: { repeat } },
+    });
     state.runs.set(run.id, run);
     renderHistory();
     await selectRun(run.id);
@@ -335,6 +341,9 @@ function handleEvent(ev) {
       if (run && run.video_id === ev.vid) renderCounters(ev);
       break;
     }
+    case "live_state":
+      if (typeof liveEvent === "function") liveEvent(ev);
+      break;
     default:
       if (ev.type && ev.type.startsWith("yt_") && typeof ytEvent === "function") ytEvent(ev);
   }
@@ -361,6 +370,8 @@ async function boot() {
   }
   await loadRuns();
   openEvents();
+  if (typeof settingsLoad === "function") await settingsLoad().catch(() => {});
+  if (typeof liveInit === "function") liveInit();
   if (typeof ytInit === "function") ytInit();
   // показываем активный прогон или последний
   const runs = [...state.runs.values()].sort((a, b) => b.created_at - a.created_at);

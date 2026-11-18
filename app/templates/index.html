@@ -41,7 +41,9 @@
 
   <nav class="tabs" id="tabs">
     <button type="button" class="tab active" data-tab="youtube">YouTube API</button>
-    <button type="button" class="tab" data-tab="sandbox">Тесты в песочнице</button>
+    <button type="button" class="tab" data-tab="sandbox">Тесты</button>
+    <button type="button" class="tab" data-tab="browser">Браузер</button>
+    <button type="button" class="tab" data-tab="settings">Настройки</button>
   </nav>
 
   <!-- ===== YouTube API (реальные данные) ===== -->
@@ -140,6 +142,9 @@
         <input id="url" type="url" inputmode="url" placeholder="https://www.youtube.com/watch?v=dQw4w9WgXcQ" required>
         <div id="url-hint" class="hint muted"></div>
 
+        <label for="repeat">Сколько воспроизведений в серии (только на тестовом плеере)</label>
+        <input id="repeat" type="number" min="1" max="100" value="3" inputmode="numeric">
+
         <div class="row-between">
           <label>Сценарии</label>
           <button id="toggle-all" type="button" class="link">выбрать все</button>
@@ -199,10 +204,76 @@
       <div id="history" class="history"></div>
     </section>
   </main>
+
+  <!-- ===== Удалённый браузер (ручной просмотр на сервере) ===== -->
+  <main id="tab-browser" class="hidden">
+    <section class="card wide">
+      <h2>Удалённый браузер</h2>
+      <div class="notice">
+        Настоящий Chromium работает на сервере (в Codespace или на хостинге), а экран показывается здесь.
+        Сайты открываете вы сами. Автотесты в этом браузере не запускаются.
+      </div>
+      <div class="btn-row">
+        <button id="live-start" class="btn primary" type="button">▶ Запустить браузер</button>
+        <button id="live-stop" class="btn danger small hidden" type="button">■ Остановить</button>
+        <span id="live-pill" class="pill off"><i></i><span>выключен</span></span>
+      </div>
+      <form id="live-nav" class="live-bar">
+        <input id="live-url" type="text" inputmode="url" autocapitalize="off" autocomplete="off"
+               placeholder="Адрес сайта, например example.com" disabled>
+        <button class="btn small" type="submit" disabled>Открыть</button>
+      </form>
+      <div class="live-nav-btns">
+        <button id="live-back" class="btn ghost small" type="button" disabled>← Назад</button>
+        <button id="live-fwd" class="btn ghost small" type="button" disabled>Вперёд →</button>
+        <button id="live-reload" class="btn ghost small" type="button" disabled>⟳ Обновить</button>
+      </div>
+      <div id="live-meta" class="muted small-note"></div>
+      <div id="live-err" class="error" role="alert"></div>
+      <div class="screen-wrap">
+        <img id="live-screen" class="hidden" alt="Экран удалённого браузера" draggable="false">
+        <div id="live-placeholder" class="screen-empty muted">Нажмите «Запустить браузер», затем введите адрес сайта.</div>
+      </div>
+      <div class="live-tools">
+        <button id="live-up" class="btn ghost small" type="button" disabled>↑ Вверх</button>
+        <button id="live-down" class="btn ghost small" type="button" disabled>↓ Вниз</button>
+        <button id="live-keyback" class="btn ghost small" type="button" disabled>⌫ Стереть</button>
+        <button id="live-enter" class="btn ghost small" type="button" disabled>↵ Enter</button>
+      </div>
+      <form id="live-type" class="live-bar">
+        <input id="live-text" type="text" maxlength="500" autocomplete="off" placeholder="Текст для выбранного поля" disabled>
+        <button class="btn small" type="submit" disabled>Ввести</button>
+      </form>
+      <p class="muted small-note">Клик по экрану — клик в браузере. Колёсико или кнопки — прокрутка.
+        Чтобы ввести текст, сначала нажмите на поле на экране, затем введите текст здесь.</p>
+    </section>
+  </main>
+
+  <!-- ===== Настройки проекта ===== -->
+  <main id="tab-settings" class="hidden">
+    <section class="card wide">
+      <h2>Настройки проекта</h2>
+      <p class="muted small-note">Сохраняются на сервере и остаются после перезапуска.</p>
+      <form id="settings-form" class="stack">
+        <label for="set-repeat">Воспроизведений в серии (1–100)</label>
+        <input id="set-repeat" type="number" min="1" max="100" inputmode="numeric">
+        <label for="set-idle">Закрывать удалённый браузер после простоя, минут (1–240)</label>
+        <input id="set-idle" type="number" min="1" max="240" inputmode="numeric">
+        <label for="set-quality">Качество экрана удалённого браузера (30–90)</label>
+        <input id="set-quality" type="number" min="30" max="90" inputmode="numeric">
+        <label>Сценарии, выбранные по умолчанию</label>
+        <div id="set-scenarios" class="scenarios"></div>
+        <button class="btn primary block" type="submit">Сохранить</button>
+        <div id="set-msg" class="error" role="alert"></div>
+      </form>
+    </section>
+  </main>
 </div>
 
 <div id="toast" class="toast hidden" role="status"></div>
 <script src="/static/yt.js?v={{ version }}"></script>
+<script src="/static/live.js?v={{ version }}"></script>
+<script src="/static/settings.js?v={{ version }}"></script>
 <script src="/static/app.js?v={{ version }}"></script>
 </body>
 </html>

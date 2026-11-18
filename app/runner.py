@@ -26,6 +26,22 @@ INSTALL_HINT = (
 )
 
 
+MAX_REPEAT = 100
+
+
+def sanitize_options(raw: Any) -> dict[str, Any]:
+    """Принимает только известные параметры прогона и проверяет их диапазоны."""
+    if not isinstance(raw, dict):
+        raw = {}
+    repeat = raw.get("repeat", 1)
+    if isinstance(repeat, bool) or not isinstance(repeat, (int, float)):
+        raise ValueError("Количество воспроизведений — целое число")
+    repeat = int(repeat)
+    if not 1 <= repeat <= MAX_REPEAT:
+        raise ValueError(f"Количество воспроизведений: от 1 до {MAX_REPEAT}")
+    return {"repeat": repeat}
+
+
 class RunManager:
     def __init__(self, settings: Settings, db: Database, bus: EventBus, store: SandboxStore) -> None:
         self.settings = settings
@@ -54,13 +70,16 @@ class RunManager:
         await self.host.stop()
 
     # --- публичный API ------------------------------------------------------
-    async def submit(self, url: str, scenario_names: list[str]) -> dict[str, Any]:
+    async def submit(self, url: str, scenario_names: list[str], options: Any = None) -> dict[str, Any]:
         video_id = extract_video_id(url)  # бросает InvalidYouTubeUrl
         names = [n for n in dict.fromkeys(scenario_names) if n in SCENARIOS]
         if not names:
             raise ValueError("Выберите хотя бы один сценарий")
+        opts = sanitize_options(options)  # бросает ValueError при неверных параметрах
         run_id = uuid.uuid4().hex[:12]
-        run = await asyncio.to_thread(self.db.create_run, run_id, url.strip()[:300], video_id, names)
+        run = await asyncio.to_thread(
+            self.db.create_run, run_id, url.strip()[:300], video_id, names, opts
+        )
         await self.bus.publish({"type": "run_update", "run": run})
         await self._queue.put(run_id)
         await self._log(run_id, "info", None, f"Прогон поставлен в очередь (видео-метка: {video_id})")
@@ -150,7 +169,7 @@ class RunManager:
                 return
 
             for name in names:
-                result = await self._run_scenario(run_id, run["video_id"], name)
+                result = await self._run_scenario(run_id, run["video_id"], name, run.get("options") or {})
                 counts[result] += 1
 
             total = len(names)
@@ -180,9 +199,18 @@ class RunManager:
             await self._log(run_id, "error", None, f"Внутренняя ошибка: {exc}")
             await self._finalize(run_id, "error", error=str(exc))
 
-    async def _run_scenario(self, run_id: str, video_id: str, name: str) -> str:
+    def _time_limit(self, name: str, options: dict[str, Any]) -> float:
+        """Серия воспроизведений длится дольше обычного сценария: лимит растёт с числом повторов."""
+        limit = float(self.settings.scenario_timeout_s)
+        if name == "playback_repeat":
+            per_play = (self.settings.sandbox_view_threshold_ms + 15000) / 1000
+            limit = max(limit, int(options.get("repeat", 1)) * per_play + 30)
+        return limit
+
+    async def _run_scenario(self, run_id: str, video_id: str, name: str, options: dict[str, Any]) -> str:
         scenario = SCENARIOS[name]
         started = time.monotonic()
+        limit = self._time_limit(name, options)
 
         async def log_fn(level: str, message: str) -> None:
             await self._log(run_id, level, name, message)
@@ -202,10 +230,10 @@ class RunManager:
                 run_id=run_id, scenario=name, video_id=video_id, settings=self.settings,
                 host=self.host, store=self.store,
                 shots_dir=self.settings.screenshots_dir / run_id,
-                log=log_fn, notify_sandbox=notify, blocked=blocked,
+                log=log_fn, notify_sandbox=notify, blocked=blocked, options=options,
             )
             try:
-                message = await asyncio.wait_for(scenario.func(ctx), timeout=self.settings.scenario_timeout_s)
+                message = await asyncio.wait_for(scenario.func(ctx), timeout=limit)
                 status = "passed"
                 await log_fn("ok", f"✔ {message}")
                 break
