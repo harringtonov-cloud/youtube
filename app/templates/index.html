@@ -16,9 +16,15 @@
   <form id="login-form" class="card login-card" autocomplete="off">
     <div class="logo">▶</div>
     <h1>Вход в панель</h1>
+    {% if google_login %}
+    <a class="btn primary" href="/auth/google/start">Войти через Google</a>
+    <p class="muted">или введите ADMIN_TOKEN, заданный на сервере</p>
+    {% else %}
     <p class="muted">Введите ADMIN_TOKEN, заданный на сервере.</p>
-    <input id="login-token" type="password" placeholder="Токен" autocomplete="current-password" required>
-    <button class="btn primary" type="submit">Войти</button>
+    {% endif %}
+    {% if login_notice %}<div class="error" role="alert">{{ login_notice }}</div>{% endif %}
+    <input id="login-token" type="password" placeholder="Токен" autocomplete="current-password">
+    <button class="btn {{ 'ghost' if google_login else 'primary' }}" type="submit">Войти</button>
     <div id="login-error" class="error" role="alert"></div>
   </form>
 </section>

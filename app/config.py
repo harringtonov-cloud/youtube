@@ -77,6 +77,9 @@ class Settings:
     google_oauth_base: str = "https://oauth2.googleapis.com"
     google_auth_url: str = "https://accounts.google.com/o/oauth2/v2/auth"
     youtube_api_base: str = "https://www.googleapis.com/youtube/v3"
+    # Вход в панель через Google: пускаем только эти адреса (список через запятую в ALLOWED_GOOGLE_EMAILS)
+    allowed_google_emails: tuple[str, ...] = ()
+    google_login_redirect: str = ""  # если пусто — строится из адреса запроса (учитывает https за прокси)
     # Секрет песочницы: выдаётся только браузеру Playwright (cookie), живёт в памяти.
     sandbox_key: str = field(default_factory=lambda: secrets.token_urlsafe(24))
 
@@ -140,6 +143,10 @@ def get_settings() -> Settings:
         or "https://accounts.google.com/o/oauth2/v2/auth",
         youtube_api_base=os.environ.get("YOUTUBE_API_BASE", "").strip().rstrip("/")
         or "https://www.googleapis.com/youtube/v3",
+        allowed_google_emails=tuple(
+            e.strip().lower() for e in os.environ.get("ALLOWED_GOOGLE_EMAILS", "").split(",") if e.strip()
+        ),
+        google_login_redirect=os.environ.get("GOOGLE_LOGIN_REDIRECT_URI", "").strip(),
     )
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     settings.screenshots_dir.mkdir(parents=True, exist_ok=True)

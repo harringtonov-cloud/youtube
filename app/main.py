@@ -9,14 +9,16 @@ import hmac
 import json
 import logging
 import re
+import secrets
 import time
+import urllib.parse
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from starlette.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
@@ -34,6 +36,7 @@ from .sandbox.store import SandboxStore
 from .scenarios import SCENARIOS
 from .settings_store import build_routes as build_settings_routes
 from .settings_store import load as load_project_settings
+from .youtube.http import call as http_call
 from .youtube.oauth import OAuthManager
 from .youtube.routes import build_routes as build_youtube_routes
 from .youtube.service import YouTubeService
@@ -106,8 +109,22 @@ async def json_body(request: Request) -> dict[str, Any]:
 
 
 # --- страницы -----------------------------------------------------------------
+LOGIN_NOTICES = {
+    "denied": "Вход через Google отменён",
+    "expired": "Вход просрочен, попробуйте ещё раз",
+    "forbidden": "Этот адрес Google не разрешён для входа",
+    "error": "Не удалось войти через Google, попробуйте позже",
+    "disabled": "Вход через Google на сервере не настроен",
+}
+
+
 async def index(request: Request) -> Response:
-    return templates.TemplateResponse(request, "index.html", {"version": __version__})
+    flag = request.query_params.get("login", "")
+    return templates.TemplateResponse(request, "index.html", {
+        "version": __version__,
+        "google_login": google_login_enabled(),
+        "login_notice": LOGIN_NOTICES.get(flag, ""),
+    })
 
 
 async def health(request: Request) -> Response:
@@ -140,6 +157,98 @@ async def login(request: Request) -> Response:
 async def logout(request: Request) -> Response:
     resp = JSONResponse({"ok": True})
     resp.delete_cookie(COOKIE_NAME, path="/")
+    return resp
+
+
+# --- вход через Google (только разрешённые адреса) -----------------------------
+_google_states: dict[str, float] = {}
+
+
+def google_login_enabled() -> bool:
+    return bool(settings.google_client_id and settings.google_client_secret and settings.allowed_google_emails)
+
+
+def google_redirect_uri(request: Request) -> str:
+    if settings.google_login_redirect:
+        return settings.google_login_redirect
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", "")).split(",")[0].strip()
+    return f"{scheme}://{host}/auth/google/callback"
+
+
+def verify_google_identity(info: dict[str, Any], client_id: str, allowed: tuple[str, ...]) -> str | None:
+    """Email, если токен выдан этому приложению, адрес подтверждён и входит в список разрешённых."""
+    if not client_id or info.get("aud") != client_id:
+        return None
+    if str(info.get("email_verified", "")).lower() != "true":
+        return None
+    email = str(info.get("email", "")).strip().lower()
+    return email if email and email in allowed else None
+
+
+async def google_start(request: Request) -> Response:
+    if not google_login_enabled():
+        return err("Вход через Google не настроен на сервере", 404)
+    now = time.time()
+    for key in [k for k, v in _google_states.items() if v < now]:
+        _google_states.pop(key, None)
+    state = secrets.token_urlsafe(24)
+    _google_states[state] = now + 600
+    query = urllib.parse.urlencode({
+        "client_id": settings.google_client_id,
+        "redirect_uri": google_redirect_uri(request),
+        "response_type": "code",
+        "scope": "openid email",
+        "state": state,
+        "prompt": "select_account",
+    })
+    return RedirectResponse(f"{settings.google_auth_url}?{query}", status_code=302)
+
+
+async def google_callback(request: Request) -> Response:
+    def back(flag: str) -> RedirectResponse:
+        return RedirectResponse(f"/?login={flag}", status_code=302)
+
+    if not google_login_enabled():
+        return back("disabled")
+    if request.query_params.get("error"):
+        return back("denied")
+    expires = _google_states.pop(request.query_params.get("state", ""), 0)
+    code = request.query_params.get("code", "")
+    if not expires or expires < time.time() or not code:
+        return back("expired")
+    redirect_uri = google_redirect_uri(request)
+    try:
+        _, token = await asyncio.to_thread(
+            http_call, "POST", f"{settings.google_oauth_base}/token",
+            form={
+                "code": code,
+                "client_id": settings.google_client_id,
+                "client_secret": settings.google_client_secret,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code",
+            },
+            retries=0,
+        )
+        id_token = str((token or {}).get("id_token", ""))
+        _, info = await asyncio.to_thread(
+            http_call, "GET", f"{settings.google_oauth_base}/tokeninfo",
+            params={"id_token": id_token}, retries=0,
+        )
+    except Exception as exc:  # noqa: BLE001 — любая ошибка обмена возвращает на страницу входа
+        log.warning("Вход через Google: ошибка обмена кода: %s", exc)
+        return back("error")
+    email = verify_google_identity(info or {}, settings.google_client_id, settings.allowed_google_emails)
+    if not email:
+        log.warning("Вход через Google отклонён: адрес не в списке разрешённых")
+        return back("forbidden")
+    log.info("Вход через Google: %s", email)
+    resp = RedirectResponse("/", status_code=302)
+    resp.set_cookie(
+        COOKIE_NAME, _TOKEN_DIGEST, httponly=True, samesite="lax",
+        secure=settings.cookie_secure or redirect_uri.startswith("https://"),
+        max_age=60 * 60 * 24 * 30, path="/",
+    )
     return resp
 
 
@@ -339,6 +448,8 @@ routes = [
     Route("/", index),
     Route("/api/health", health),
     Route("/api/login", login, methods=["POST"]),
+    Route("/auth/google/start", google_start, methods=["GET"]),
+    Route("/auth/google/callback", google_callback, methods=["GET"]),
     Route("/api/logout", logout, methods=["POST"]),
     Route("/api/me", me),
     Route("/api/scenarios", list_scenarios),
